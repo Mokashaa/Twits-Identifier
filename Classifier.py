@@ -5,7 +5,12 @@ from textacy.preprocess import preprocess_text
 import ftfy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
-
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
 
 
 #TweetMiner function from Mike Roman
@@ -96,35 +101,45 @@ tweets = pd.concat([trump_df, hillary_df], axis=0)
 
 
 
-# We can use the TfidfVectorizer to find ngrams for us
-vect = TfidfVectorizer(ngram_range=(2,5), stop_words='english')
-
-# Pulls all of trumps tweet text's into one giant string
-summaries = "".join(trump_df['text'])
-ngrams_summaries = vect.build_analyzer()(summaries)
-
-
-
-vect = TfidfVectorizer(ngram_range=(2,5), stop_words='english')
-
-summaries = "".join(hillary_df['text'])
-ngrams_summaries = vect.build_analyzer()(summaries)
-
-Counter(ngrams_summaries).most_common(40)
-
-
-from textacy.preprocess import preprocess_text
-
 tweet_text = tweets['text'].values
-
-
 clean_text = [preprocess_text(x, fix_unicode=True, lowercase=True, no_urls=True, no_emails=True, no_phone_numbers=True, no_currency_symbols=True,no_punct=True, no_accents=True)
                 for x in tweet_text]
-
-print(tweet_text[5])
-print(clean_text[5])
 
 y =tweets['handle'].map(lambda x: 1 if x == 'realDonaldTrump' else 0).values
 print (max(pd.Series(y).value_counts(normalize=True)))
 
 
+#Vectorizing with TF-IDF Vectorizer and creating X matrix
+tfv = TfidfVectorizer(min_df=1,ngram_range=(1,4),max_features=2500)
+X = tfv.fit_transform(clean_text).todense()
+print (X.shape)
+
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split( X, y, test_size=0.33, random_state=42)
+
+lr = LogisticRegression(solver='liblinear')
+params = {'penalty': ['l1', 'l2'], 'C':np.logspace(-5,0,100)}
+#Grid searching to find optimal parameters for Logistic Regression
+gs = GridSearchCV(lr, param_grid=params, cv=4, verbose=1)
+#gs=RandomizedSearchCV(lr,params)
+gs.fit(X_train, y_train)
+
+print (gs.best_params_)
+print (gs.score(X_train,y=y_train))
+print (gs.score(X_test,y=y_test))
+
+
+
+estimator = LogisticRegression(solver='liblinear',penalty='l2',C=1.0)
+estimator.fit(X,y)
+
+# Prep our source as TfIdf vectors
+source_test = [
+    "The presidency doesn’t change who you are—it reveals who you are. And we’ve seen all we need to of Donald Trump.",
+    "Crooked Hillary is spending tremendous amounts of Wall Street money on false ads against me. She is a very dishonest person!"
+]
+
+
+Xtest = tfv.transform(source_test)
+print(pd.DataFrame(estimator.predict_proba(Xtest), columns=["Proba_Hillary", "Proba_Trump"]))
